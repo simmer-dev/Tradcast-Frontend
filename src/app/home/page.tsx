@@ -100,6 +100,14 @@ const HelpIcon = ({ className = "" }: { className?: string }) => (
     <path d="M12 17h.01"/>
   </svg>
 );
+const CeloIcon = ({ className = "" }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 950 950" className={className}>
+    <path fill="#FCFF52" d="M375 850c151.9 0 275-123.1 275-275S526.9 300 375 300 100 423.1 100 575s123.1 275 275 275Zm0-100c-96.65 0-175-78.35-175-175s78.35-175 175-175 175 78.35 175 175-78.35 175-175 175Z"/>
+    <path fill="#35D07F" d="M575 650c151.9 0 275-123.1 275-275S726.9 100 575 100 300 223.1 300 375s123.1 275 275 275Zm0-100c-96.65 0-175-78.35-175-175s78.35-175 175-175 175 78.35 175 175-78.35 175-175 175Z"/>
+    <path fill="#35D07F" d="M587.39 750a274.38 274.38 0 0 0 54.55-108.06A175.9 175.9 0 0 1 575 650c-42.51 0-81.45-15.13-111.82-40.28A275.87 275.87 0 0 0 425 679.42 275.24 275.24 0 0 0 587.39 750Z"/>
+    <path fill="#FBCC5C" d="M362.61 200a274.38 274.38 0 0 0-54.55 108.06A175.9 175.9 0 0 1 375 300c42.51 0 81.45 15.13 111.82 40.28a275.87 275.87 0 0 0 38.18-69.7A275.24 275.24 0 0 0 362.61 200Z"/>
+  </svg>
+);
 export default function HomePage() {
   const { context, isMiniAppReady } = useMiniApp();
   const { isMenuOpen } = useMenu();
@@ -118,15 +126,22 @@ export default function HomePage() {
   // Energy state from backend
   const [energy, setEnergy] = useState<number | null>(null);
   const [streakDays, setStreakDays] = useState<number | null>(null);
+  const [giveawayEligible, setGiveawayEligible] = useState<boolean | null>(null);
   const [isLoadingEnergy, setIsLoadingEnergy] = useState(true);
+  
+  // Quarter countdown state (counts down to next 0, 15, 30, 45 minute mark)
+  const [quarterCountdown, setQuarterCountdown] = useState({ minutes: 0, seconds: 0 });
   
   // Game session state
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isStartingGame, setIsStartingGame] = useState(false);
   const [startGameError, setStartGameError] = useState<string | null>(null);
   const [isStuckState, setIsStuckState] = useState(false); // Shows refresh button when stuck
+  const [showWalletRetry, setShowWalletRetry] = useState(false); // Shows retry button for wallet issues
   const playButtonTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
-  const PLAY_BUTTON_TIMEOUT_MS = 7000; // 7 seconds before showing "stuck" message
+  const walletConnectTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const PLAY_BUTTON_TIMEOUT_MS = 11000; // 11 seconds before showing "stuck" message (increased for slower connections)
+  const WALLET_CONNECT_TIMEOUT_MS = 5000; // 5 seconds before showing wallet retry
   
   // Get wagmi config for wallet client
   const config = useConfig();
@@ -201,11 +216,29 @@ export default function HomePage() {
     if (frameConnector) {
       hasAttemptedFrameConnect.current = true;
       console.log("Auto-connecting to Farcaster Frame wallet...");
+      
+      // Start wallet connect timeout
+      walletConnectTimeoutRef.current = setTimeout(() => {
+        if (!isConnected) {
+          console.warn('⚠️ Wallet connection timeout - showing retry option');
+          setShowWalletRetry(true);
+        }
+      }, WALLET_CONNECT_TIMEOUT_MS);
+      
       setTimeout(() => {
         connect({ connector: frameConnector });
       }, 0);
     }
   }, [fcReady, isConnected, isConnecting, connectors, connect]);
+  
+  // Clear wallet timeout when connected
+  useEffect(() => {
+    if (isConnected && walletConnectTimeoutRef.current) {
+      clearTimeout(walletConnectTimeoutRef.current);
+      walletConnectTimeoutRef.current = null;
+      setShowWalletRetry(false);
+    }
+  }, [isConnected]);
   /* ------------------- Fetch Energy from Backend ------------------- */
   useEffect(() => {
     const fetchEnergy = async () => {
@@ -224,12 +257,15 @@ export default function HomePage() {
         if (res.ok) {
           const data = await res.json();
           console.log('✅ Energy data received:', data);
-          // Assuming backend returns { energy: 10, streak_days: 3 }
+          // Assuming backend returns { energy: 10, streak_days: 3, giveaway_eligible: true }
           if (data.energy !== undefined) {
             setEnergy(data.energy);
           }
           if (data.streak_days !== undefined) {
             setStreakDays(data.streak_days);
+          }
+          if (data.giveaway_eligible !== undefined) {
+            setGiveawayEligible(data.giveaway_eligible);
           }
         } else {
           console.error('❌ Failed to fetch energy:', res.status);
@@ -242,6 +278,70 @@ export default function HomePage() {
     };
     fetchEnergy();
   }, [fcReady, isMiniAppReady]);
+  
+  // Quarter countdown effect - counts down to next 0, 15, 30, 45 minute mark
+  // Also refreshes energy when countdown reaches 0
+  useEffect(() => {
+    const refreshEnergy = async () => {
+      if (!fcReady || !isMiniAppReady) return;
+      try {
+        const { sdk } = await import("@farcaster/frame-sdk");
+        console.log('🔄 Refreshing energy (quarter reached)...');
+        const res = await sdk.quickAuth.fetch('/api/home', {
+          method: 'GET',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.energy !== undefined) {
+            setEnergy(data.energy);
+            console.log('✅ Energy refreshed:', data.energy);
+          }
+          if (data.giveaway_eligible !== undefined) {
+            setGiveawayEligible(data.giveaway_eligible);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error refreshing energy:', error);
+      }
+    };
+
+    const calculateQuarterCountdown = () => {
+      const now = new Date();
+      const currentMinute = now.getMinutes();
+      const currentSecond = now.getSeconds();
+      
+      // Find next quarter (0, 15, 30, 45)
+      const quarters = [0, 15, 30, 45];
+      let nextQuarter = quarters.find(q => q > currentMinute);
+      
+      // If no quarter found in current hour, next quarter is 0 (next hour)
+      if (nextQuarter === undefined) {
+        nextQuarter = 60; // Will show as minutes until :00
+      }
+      
+      const minutesLeft = nextQuarter - currentMinute - 1;
+      const secondsLeft = 60 - currentSecond;
+      
+      // Check if we just hit a quarter (0 minutes, 0 or 1 seconds)
+      if (minutesLeft <= 0 && secondsLeft <= 1) {
+        // Refresh energy when countdown reaches 0
+        refreshEnergy();
+      }
+      
+      // Adjust if seconds is 60
+      if (secondsLeft === 60) {
+        setQuarterCountdown({ minutes: minutesLeft + 1, seconds: 0 });
+      } else {
+        setQuarterCountdown({ minutes: minutesLeft < 0 ? 0 : minutesLeft, seconds: secondsLeft });
+      }
+    };
+    
+    calculateQuarterCountdown();
+    const timer = setInterval(calculateQuarterCountdown, 1000);
+    
+    return () => clearInterval(timer);
+  }, [fcReady, isMiniAppReady]);
+  
   // Get user info
   const user = fcContext?.user || context?.user;
   const walletAddress =
@@ -262,6 +362,7 @@ export default function HomePage() {
     setTxHash(undefined);
     setSessionId(null);
     setIsStuckState(false);
+    // Note: Don't reset showWalletRetry here - only reset when wallet actually connects
     if (playButtonTimeoutRef.current) {
       clearTimeout(playButtonTimeoutRef.current);
       playButtonTimeoutRef.current = null;
@@ -384,7 +485,7 @@ export default function HomePage() {
       setSessionId(newSessionId);
 
       // Check if contract requires minimum payment
-      const requiredPayment = minGamePrice ? BigInt(String(minGamePrice)) : BigInt('80000000000000000'); // Default: 0.08 CELO
+      const requiredPayment = minGamePrice ? BigInt(String(minGamePrice)) : BigInt('20000000000000000'); // Default: 0.08 CELO
       console.log('💰 Contract payment (minGamePrice or default):', requiredPayment.toString());
 
       // Step 2: Call smart contract startGameSession on Celo
@@ -463,6 +564,15 @@ export default function HomePage() {
           return;
         }
         
+        // Check for getChainId error (Farcaster connector issue)
+        if (errorText.includes('getchainid') || errorText.includes('is not a function')) {
+          console.warn('Chain ID error detected - Farcaster connector compatibility issue');
+          setStartGameError('Wallet connection issue. Please refresh to fix.');
+          setShowWalletRetry(true);
+          resetPlayButtonState();
+          return;
+        }
+        
         // If direct viem approach fails, try wagmi's writeContract as fallback
         console.warn('Direct viem approach failed, trying wagmi writeContract:', directError);
         
@@ -493,6 +603,9 @@ export default function HomePage() {
         setStartGameError('Please switch to Celo network to play.');
       } else if (errorText.includes('insufficient') || errorText.includes('balance')) {
         setStartGameError('Insufficient CELO balance.');
+      } else if (errorText.includes('wallet') || errorText.includes('getchainid') || errorText.includes('provider') || errorText.includes('connector')) {
+        setStartGameError('Wallet connection issue. Please refresh to fix.');
+        setShowWalletRetry(true);
       } else {
         setStartGameError(error.message || 'Failed to start game. Please try again.');
       }
@@ -543,6 +656,9 @@ export default function HomePage() {
       if (playButtonTimeoutRef.current) {
         clearTimeout(playButtonTimeoutRef.current);
       }
+      if (walletConnectTimeoutRef.current) {
+        clearTimeout(walletConnectTimeoutRef.current);
+      }
     };
   }, [isStartingGame, txHash, isPending, isConfirmed, isStuckState]);
 
@@ -573,6 +689,7 @@ export default function HomePage() {
           (writeError as any).cause?.message?.includes('getChainId')) {
         console.warn('Chain ID error detected - Farcaster connector compatibility issue');
         errorMessage = 'Wallet connection issue. Please try again.';
+        setShowWalletRetry(true); // Show retry button for wallet issues
       } else if (fullErrorText.includes('user rejected') || 
           fullErrorText.includes('rejected the request') ||
           fullErrorText.includes('user denied')) {
@@ -655,69 +772,64 @@ export default function HomePage() {
       {/* Header with Welcome message */}
       <header className="w-full p-6 flex flex-col items-center z-10 mt-8">
         <div className="w-full max-w-md mb-6">
-          {/* Energy and Streak Display */}
-          <div className="mt-4 flex items-center justify-center gap-3 mb-6">
-            {/* Energy Display */}
-            <div className="flex items-center gap-2 bg-gradient-to-br from-slate-800/60 to-slate-900/60 backdrop-blur-xl px-5 py-3 rounded-2xl border-2 border-slate-700/50 shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
-              <LightningIcon className="text-[#A78BFA] drop-shadow-[0_0_6px_rgba(167,139,250,0.6)]" />
-              <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-[#A78BFA] to-white">
-                {energy !== null ? energy : '...'}
+          {/* Energy Display with Countdown */}
+          <div className="mt-4 flex items-center justify-center mb-4">
+            <div className="flex flex-col items-center bg-gradient-to-br from-slate-800/60 to-slate-900/60 backdrop-blur-xl px-5 py-3 rounded-2xl border-2 border-slate-700/50 shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
+              <div className="flex items-center gap-2">
+                <LightningIcon className="text-[#A78BFA] drop-shadow-[0_0_6px_rgba(167,139,250,0.6)]" />
+                <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-[#A78BFA] to-white">
+                  {energy !== null ? energy : '...'}
+                </span>
+              </div>
+              {/* Countdown - shows MAX when energy is 10 */}
+              <span className="text-xs font-mono text-slate-400 mt-1">
+                {energy === 10 ? 'MAX' : `${String(quarterCountdown.minutes).padStart(2, '0')}:${String(quarterCountdown.seconds).padStart(2, '0')}`}
               </span>
             </div>
+          </div>
+          
 
-          </div>
-          {/* Welcome message with username and profile pic */}
-          <div className="text-center mb-4">
-            {/* Profile Picture */}
-            {pfpUrl && (
-              <div className="w-20 h-20 mx-auto mb-3 rounded-full overflow-hidden border-2 border-[#A78BFA]/60 shadow-[0_0_16px_rgba(167,139,250,0.4)]">
-                <img src={pfpUrl} alt="Profile" className="w-full h-full object-cover"/>
-              </div>
-            )}
-            <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-[#A78BFA] to-white mb-2">
-              Welcome, @{username}!
-            </h1>
-            {/* Wallet Address */}
-            <div className="bg-gradient-to-br from-slate-800/60 to-slate-900/60 backdrop-blur-xl px-4 py-2 rounded-xl border border-slate-700/50 inline-block">
-              <p className="text-sm text-slate-300 font-mono">
-                {formatAddress(walletAddress)}
-              </p>
-            </div>
-            {/* Wallet Connection Status */}
-            {isConnected && (
-              <div className="mt-2">
-                <div className="inline-flex items-center gap-1.5 text-xs text-green-400">
-                  <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]"></div>
-                  Connected
-                </div>
-              </div>
-            )}
-          </div>
-          {energy !== null && energy === 0 && (
-            <div className="mt-3 text-center">
-              <span className="text-xs text-red-400 font-semibold">⚠️ No energy left!</span>
-            </div>
-          )}
-          
-          {/* Error Message */}
-          {startGameError && (
-            <div className="mt-3 text-center">
-              <span className="text-xs text-red-400 font-semibold">⚠️ {startGameError}</span>
-            </div>
-          )}
-          
-          {/* Transaction Status */}
-          {(isPending || isConfirming) && (
-            <div className="mt-3 text-center">
-              <span className="text-xs text-blue-400 font-semibold">
-                {isPending ? '⏳ Waiting for approval...' : '⏳ Confirming transaction...'}
-              </span>
-            </div>
-          )}
         </div>
       </header>
-      {/* Play button section */}
-      <section className="flex-1 flex flex-col items-center justify-center z-10 pb-24">
+      
+      {/* Play button section - Now in the middle */}
+      <section className="flex flex-col items-center justify-center z-10 py-4">
+        {/* Error states above button */}
+        {energy !== null && energy === 0 && (
+          <div className="mb-3 text-center">
+            <span className="text-xs text-red-400 font-semibold">⚠️ No energy left!</span>
+          </div>
+        )}
+        {startGameError && (
+          <div className="mb-3 text-center">
+            <span className="text-xs text-red-400 font-semibold">⚠️ {startGameError}</span>
+          </div>
+        )}
+        {/* Wallet Retry Button */}
+        {showWalletRetry && (
+          <div className="mb-4 text-center">
+            <button
+              onClick={handleRefreshPage}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-semibold rounded-xl shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 transition-all duration-300 active:scale-95"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+                <path d="M16 16h5v5"/>
+              </svg>
+              Refresh to Fix
+            </button>
+          </div>
+        )}
+        {/* Transaction Status */}
+        {(isPending || isConfirming) && (
+          <div className="mb-3 text-center">
+            <span className="text-xs text-blue-400 font-semibold">
+              {isPending ? '⏳ Waiting for approval...' : '⏳ Confirming transaction...'}
+            </span>
+          </div>
+        )}
         <div
           className={`relative group ${
             isStuckState 
@@ -787,7 +899,7 @@ export default function HomePage() {
         
         {/* Stuck state message below the button */}
         {isStuckState && (
-          <div className="mt-6 text-center animate-pulse">
+          <div className="mt-4 text-center animate-pulse">
             <p className="text-amber-400 text-sm font-semibold">
               ⚠️ Taking longer than expected
             </p>
@@ -796,6 +908,39 @@ export default function HomePage() {
             </p>
           </div>
         )}
+      </section>
+      
+      {/* Profile section - Below play button */}
+      <section className="w-full flex flex-col items-center z-10 pb-24 px-6">
+        <div className="text-center">
+          {/* Profile Picture and Welcome - Horizontal */}
+          <div className="flex items-center justify-center gap-3 mb-2">
+            {pfpUrl && (
+              <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#A78BFA]/60 shadow-[0_0_16px_rgba(167,139,250,0.4)] flex-shrink-0">
+                <img src={pfpUrl} alt="Profile" className="w-full h-full object-cover"/>
+              </div>
+            )}
+            <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-[#A78BFA] to-white">
+              Welcome, @{username}!
+            </h1>
+          </div>
+          {/* Wallet Address with Connection Status */}
+          <div className="inline-flex items-center gap-2 bg-gradient-to-br from-slate-800/60 to-slate-900/60 backdrop-blur-xl px-4 py-2 rounded-xl border border-slate-700/50 mb-2">
+            <p className="text-sm text-slate-300 font-mono">
+              {formatAddress(walletAddress)}
+            </p>
+            {isConnected && (
+              <div className="flex items-center gap-1.5 text-xs text-green-400 border-l border-slate-600 pl-2">
+                <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]"></div>
+                Connected
+              </div>
+            )}
+          </div>
+          {/* CELO notice */}
+          <p className="text-xs text-slate-400">
+            You need <span className="text-[#FCFF52] font-semibold">CELO</span> in your wallet to play this game
+          </p>
+        </div>
       </section>
       {/* Bottom navigation - hidden when hamburger menu is open */}
       <nav className={`fixed bottom-0 left-0 w-full bg-gradient-to-t from-[#0F172A] via-[#0F172A]/95 to-transparent backdrop-blur-2xl border-t-2 border-slate-800/60 pb-safe z-50 shadow-[0_-4px_16px_rgba(0,0,0,0.5)] transition-all duration-300 ${isMenuOpen ? 'opacity-0 pointer-events-none translate-y-full' : 'opacity-100 translate-y-0'}`}>

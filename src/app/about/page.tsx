@@ -245,6 +245,13 @@ export default function AboutPage() {
           </div>
         </div>
 
+        {/* Celo requirement notice */}
+        <div className="w-full max-w-lg mt-6 px-4 py-3 bg-gradient-to-br from-slate-800/60 to-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50">
+          <p className="text-sm text-slate-300 text-center">
+            You need at least <span className="text-[#FCFF52] font-bold">0.025 CELO</span> to play this game
+          </p>
+        </div>
+
         {/* Footer note */}
         <p className="text-slate-500 text-xs text-center mt-6 max-w-md">
           Start practicing now and build your trading skills for when it matters most!

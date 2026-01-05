@@ -1,9 +1,9 @@
 // src/app/api/verify/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyQuickAuth } from '@/lib/quick-auth-utils';
-import { env } from '@/lib/env';
 import * as crypto from 'crypto';
 
+// CRITICAL: Move this to environment variable in production!
 const SECRET_KEY = process.env.WS_SECRET || 'ws_secret';
 
 function encrypt(text: string, secret: string): string {
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     const encryptedToken = encrypt(JSON.stringify(payload), SECRET_KEY);
 
     // Send to WebSocket server
-    const wsUrl = `${env.WS_SESSION_URL}/start_session`;
+    const wsUrl = 'http://localhost:8031/start_session';
 
     const wsResponse = await fetch(wsUrl, {
       method: 'POST',

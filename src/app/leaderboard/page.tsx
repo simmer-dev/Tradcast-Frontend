@@ -27,9 +27,13 @@ const UserIcon = ({ active }: { active?: boolean }) => (
   </svg>
 );
 
+type LeaderboardType = 'daily' | 'weekly' | 'overall' | 'tournament';
+
 interface LeaderboardEntry {
   username: string;
-  total_profit: number;
+  daily_profit?: number;
+  weekly_profit?: number;
+  total_profit?: number;
   the_user: boolean;
   rank: number;
 }
@@ -39,20 +43,35 @@ export default function LeaderboardPage() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<LeaderboardType>('overall');
+  const [showTournamentModal, setShowTournamentModal] = useState(false);
 
   useEffect(() => {
-    fetchLeaderboard();
-  }, []);
+    if (activeTab !== 'tournament') {
+      fetchLeaderboard(activeTab);
+    }
+  }, [activeTab]);
 
-  const fetchLeaderboard = async () => {
+  const getEndpoint = (type: LeaderboardType) => {
+    switch (type) {
+      case 'daily':
+        return '/api/daily_leaderboard';
+      case 'weekly':
+        return '/api/weekly_leaderboard';
+      case 'overall':
+      default:
+        return '/api/leaderboard';
+    }
+  };
+
+  const fetchLeaderboard = async (type: LeaderboardType) => {
     try {
       setLoading(true);
 
-      // Use Farcaster SDK quickAuth like in profile page
       const { sdk } = await import("@farcaster/frame-sdk");
-      console.log('🟢 Fetching leaderboard from backend...');
+      console.log(`🟢 Fetching ${type} leaderboard from backend...`);
 
-      const response = await sdk.quickAuth.fetch('/api/leaderboard', {
+      const response = await sdk.quickAuth.fetch(getEndpoint(type), {
         method: 'GET',
       });
 
@@ -69,6 +88,14 @@ export default function LeaderboardPage() {
       setError(err.message || 'Failed to load leaderboard');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTabChange = (tab: LeaderboardType) => {
+    if (tab === 'tournament') {
+      setShowTournamentModal(true);
+    } else {
+      setActiveTab(tab);
     }
   };
 
@@ -90,6 +117,42 @@ export default function LeaderboardPage() {
     return profit.toFixed(2);
   };
 
+  const getProfit = (entry: LeaderboardEntry): number => {
+    switch (activeTab) {
+      case 'daily':
+        return entry.daily_profit ?? 0;
+      case 'weekly':
+        return entry.weekly_profit ?? 0;
+      case 'overall':
+      default:
+        return entry.total_profit ?? 0;
+    }
+  };
+
+  const getProfitLabel = () => {
+    switch (activeTab) {
+      case 'daily':
+        return 'Daily Profit';
+      case 'weekly':
+        return 'Weekly Profit';
+      case 'overall':
+      default:
+        return 'Total Profit';
+    }
+  };
+
+  const getTitle = () => {
+    switch (activeTab) {
+      case 'daily':
+        return 'DAILY LEADERBOARD';
+      case 'weekly':
+        return 'WEEKLY LEADERBOARD';
+      case 'overall':
+      default:
+        return 'OVERALL LEADERBOARD';
+    }
+  };
+
   const topTen = leaderboard.filter(entry => !entry.the_user || entry.rank <= 10);
   const userEntry = leaderboard.find(entry => entry.the_user);
 
@@ -99,18 +162,86 @@ export default function LeaderboardPage() {
       <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-[#8B5CF6] opacity-10 blur-[80px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-[#A78BFA] opacity-8 blur-[70px] rounded-full pointer-events-none"></div>
 
+      {/* Tournament Coming Soon Modal */}
+      {showTournamentModal && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
+            onClick={() => setShowTournamentModal(false)}
+          />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-gradient-to-br from-slate-900 to-slate-800 border-2 border-[#8B5CF6]/50 rounded-3xl p-8 max-w-sm w-[90%] shadow-[0_0_60px_rgba(139,92,246,0.3)]">
+            <div className="text-center">
+              <div className="text-6xl mb-4">🏆</div>
+              <h2 className="text-2xl font-bold text-white mb-2">Tournament Mode</h2>
+              <p className="text-slate-400 mb-6">
+                Compete against other traders in exciting tournaments with prizes!
+              </p>
+              <div className="inline-block px-6 py-3 bg-gradient-to-r from-[#8B5CF6] to-[#A78BFA] rounded-xl">
+                <span className="text-white font-bold text-lg">Coming Soon</span>
+              </div>
+              <button
+                onClick={() => setShowTournamentModal(false)}
+                className="mt-6 w-full py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-semibold transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       <div className="flex-1 overflow-y-auto pb-24 pt-6 px-3 md:px-6">
         <div className="max-w-4xl mx-auto">
           {/* Title */}
-          <div className="text-center mb-6">
-            <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold text-white tracking-wide mb-3">
-              LEADERBOARD
+          <div className="text-center mb-4">
+            <h1 className="text-xl md:text-3xl lg:text-4xl font-bold text-white tracking-wide mb-3">
+              {getTitle()}
             </h1>
             <div className="flex items-center justify-center gap-2">
               <div className="h-[2px] w-6 md:w-8 bg-gradient-to-r from-transparent to-[#8B5CF6] rounded-full"></div>
               <div className="h-1.5 md:h-2 w-16 md:w-24 bg-gradient-to-r from-[#A78BFA] via-[#8B5CF6] to-[#7C3AED] rounded-full shadow-[0_0_12px_rgba(139,92,246,0.4)]"></div>
               <div className="h-[2px] w-6 md:w-8 bg-gradient-to-l from-transparent to-[#8B5CF6] rounded-full"></div>
             </div>
+          </div>
+
+          {/* Tab Buttons */}
+          <div className="flex gap-2 mb-5 overflow-x-auto pb-2 scrollbar-hide">
+            <button
+              onClick={() => handleTabChange('daily')}
+              className={`flex-1 min-w-[70px] px-3 py-2.5 rounded-xl font-semibold text-xs md:text-sm transition-all duration-300 ${
+                activeTab === 'daily'
+                  ? 'bg-gradient-to-r from-[#10b981] to-[#059669] text-white shadow-[0_4px_20px_rgba(16,185,129,0.4)]'
+                  : 'bg-slate-800/60 text-slate-400 hover:bg-slate-700/60 hover:text-slate-300 border border-slate-700/50'
+              }`}
+            >
+              Daily
+            </button>
+            <button
+              onClick={() => handleTabChange('weekly')}
+              className={`flex-1 min-w-[70px] px-3 py-2.5 rounded-xl font-semibold text-xs md:text-sm transition-all duration-300 ${
+                activeTab === 'weekly'
+                  ? 'bg-gradient-to-r from-[#3b82f6] to-[#2563eb] text-white shadow-[0_4px_20px_rgba(59,130,246,0.4)]'
+                  : 'bg-slate-800/60 text-slate-400 hover:bg-slate-700/60 hover:text-slate-300 border border-slate-700/50'
+              }`}
+            >
+              Weekly
+            </button>
+            <button
+              onClick={() => handleTabChange('overall')}
+              className={`flex-1 min-w-[70px] px-3 py-2.5 rounded-xl font-semibold text-xs md:text-sm transition-all duration-300 ${
+                activeTab === 'overall'
+                  ? 'bg-gradient-to-r from-[#8B5CF6] to-[#7C3AED] text-white shadow-[0_4px_20px_rgba(139,92,246,0.4)]'
+                  : 'bg-slate-800/60 text-slate-400 hover:bg-slate-700/60 hover:text-slate-300 border border-slate-700/50'
+              }`}
+            >
+              Overall
+            </button>
+            <button
+              onClick={() => handleTabChange('tournament')}
+              className="flex-1 min-w-[85px] px-3 py-2.5 rounded-xl font-semibold text-xs md:text-sm transition-all duration-300 bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-400 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30"
+            >
+              🏆 Tournament
+            </button>
           </div>
 
           {/* Loading state */}
@@ -125,7 +256,7 @@ export default function LeaderboardPage() {
             <div className="bg-red-900/30 border border-red-500/50 rounded-xl p-4 text-center">
               <p className="text-red-300">{error}</p>
               <button
-                onClick={fetchLeaderboard}
+                onClick={() => fetchLeaderboard(activeTab)}
                 className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
               >
                 Retry
@@ -140,7 +271,7 @@ export default function LeaderboardPage() {
               <div className="hidden md:grid grid-cols-4 gap-4 px-6 py-4 bg-gradient-to-r from-[#5B21B6] to-[#6D28D9]">
                 <div className="text-white font-bold text-sm uppercase tracking-wider">Rank</div>
                 <div className="text-white font-bold text-sm uppercase tracking-wider">Username</div>
-                <div className="text-white font-bold text-sm uppercase tracking-wider text-right">Total Profit</div>
+                <div className="text-white font-bold text-sm uppercase tracking-wider text-right">{getProfitLabel()}</div>
                 <div className="text-white font-bold text-sm uppercase tracking-wider text-center">Status</div>
               </div>
 
@@ -154,50 +285,53 @@ export default function LeaderboardPage() {
 
               {/* Table rows */}
               <div className="divide-y divide-slate-700/40">
-                {topTen.map((entry, index) => (
-                  <div
-                    key={index}
-                    className={`grid grid-cols-4 gap-2 md:gap-4 px-3 md:px-6 py-3 md:py-4 transition-all duration-300 ${
-                      entry.the_user 
-                        ? "bg-[#8B5CF6]/20 border-l-4 border-[#8B5CF6]" 
-                        : "hover:bg-slate-800/40"
-                    }`}
-                  >
-                    {/* Rank */}
-                    <div className="flex items-center gap-2">
-                      <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full ${getRankColor(entry.rank)} flex items-center justify-center font-bold text-[10px] md:text-sm shadow-lg text-white`}>
-                        {entry.rank <= 3 ? getRankIcon(entry.rank) : `#${entry.rank}`}
+                {topTen.map((entry, index) => {
+                  const profit = getProfit(entry);
+                  return (
+                    <div
+                      key={index}
+                      className={`grid grid-cols-4 gap-2 md:gap-4 px-3 md:px-6 py-3 md:py-4 transition-all duration-300 ${
+                        entry.the_user 
+                          ? "bg-[#8B5CF6]/20 border-l-4 border-[#8B5CF6]" 
+                          : "hover:bg-slate-800/40"
+                      }`}
+                    >
+                      {/* Rank */}
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full ${getRankColor(entry.rank)} flex items-center justify-center font-bold text-[10px] md:text-sm shadow-lg text-white`}>
+                          {entry.rank <= 3 ? getRankIcon(entry.rank) : `#${entry.rank}`}
+                        </div>
+                      </div>
+
+                      {/* Username */}
+                      <div className="flex items-center">
+                        <span className={`font-medium text-[10px] md:text-sm truncate ${
+                          entry.the_user ? "text-[#A78BFA] font-bold" : "text-slate-200"
+                        }`}>
+                          {entry.username}
+                        </span>
+                      </div>
+
+                      {/* Profit */}
+                      <div className="flex items-center justify-end">
+                        <span className={`font-semibold text-[10px] md:text-sm ${
+                          profit > 0 ? "text-green-400" : profit < 0 ? "text-red-400" : "text-slate-300"
+                        }`}>
+                          ${formatProfit(profit)}
+                        </span>
+                      </div>
+
+                      {/* Status */}
+                      <div className="flex items-center justify-center">
+                        {entry.the_user && (
+                          <span className="px-2 md:px-3 py-0.5 md:py-1 bg-[#8B5CF6] text-white text-[8px] md:text-xs font-bold rounded-full">
+                            YOU
+                          </span>
+                        )}
                       </div>
                     </div>
-
-                    {/* Username */}
-                    <div className="flex items-center">
-                      <span className={`font-medium text-[10px] md:text-sm truncate ${
-                        entry.the_user ? "text-[#A78BFA] font-bold" : "text-slate-200"
-                      }`}>
-                        {entry.username}
-                      </span>
-                    </div>
-
-                    {/* Total Profit */}
-                    <div className="flex items-center justify-end">
-                      <span className={`font-semibold text-[10px] md:text-sm ${
-                        entry.total_profit > 0 ? "text-green-400" : "text-slate-300"
-                      }`}>
-                        ${formatProfit(entry.total_profit)}
-                      </span>
-                    </div>
-
-                    {/* Status */}
-                    <div className="flex items-center justify-center">
-                      {entry.the_user && (
-                        <span className="px-2 md:px-3 py-0.5 md:py-1 bg-[#8B5CF6] text-white text-[8px] md:text-xs font-bold rounded-full">
-                          YOU
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {/* User's rank if outside top 10 */}
                 {userEntry && userEntry.rank > 10 && (
@@ -220,9 +354,9 @@ export default function LeaderboardPage() {
 
                       <div className="flex items-center justify-end">
                         <span className={`font-semibold text-[10px] md:text-sm ${
-                          userEntry.total_profit > 0 ? "text-green-400" : "text-slate-300"
+                          getProfit(userEntry) > 0 ? "text-green-400" : getProfit(userEntry) < 0 ? "text-red-400" : "text-slate-300"
                         }`}>
-                          ${formatProfit(userEntry.total_profit)}
+                          ${formatProfit(getProfit(userEntry))}
                         </span>
                       </div>
 
@@ -234,6 +368,14 @@ export default function LeaderboardPage() {
                     </div>
                   </>
                 )}
+
+                {/* Empty state */}
+                {topTen.length === 0 && (
+                  <div className="px-6 py-12 text-center">
+                    <div className="text-4xl mb-3">📊</div>
+                    <p className="text-slate-400">No leaderboard data available yet</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -243,8 +385,8 @@ export default function LeaderboardPage() {
             <div className="mt-4 text-center">
               <p className="text-slate-400 text-xs md:text-sm">
                 Your Rank: <span className="text-[#A78BFA] font-bold">#{userEntry.rank}</span> •
-                Total Profit: <span className={`font-bold ${userEntry.total_profit > 0 ? "text-green-400" : "text-slate-300"}`}>
-                  ${formatProfit(userEntry.total_profit)}
+                {getProfitLabel()}: <span className={`font-bold ${getProfit(userEntry) > 0 ? "text-green-400" : getProfit(userEntry) < 0 ? "text-red-400" : "text-slate-300"}`}>
+                  ${formatProfit(getProfit(userEntry))}
                 </span>
               </p>
             </div>

@@ -1,13 +1,12 @@
 // src/app/api/weekly_leaderboard/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyQuickAuth } from '@/lib/quick-auth-utils';
-import { env } from '@/lib/env';
 
 export async function GET(req: NextRequest) {
   try {
     const fid = await verifyQuickAuth(req);
 
-    const backendUrl = `${env.BACKEND_API_URL}/api/v1/user/weekly_leaderboard?fid=${fid}`;
+    const backendUrl = `http://localhost:5009/api/v1/user/leaderboard/weekly?fid=${fid}`;
 
     const response = await fetch(backendUrl, {
       method: 'GET',
@@ -22,6 +21,7 @@ export async function GET(req: NextRequest) {
       throw new Error(`Backend error: ${response.status}`);
     }
 
+
     const data = await response.json();
     return NextResponse.json(data);
   } catch (e: any) {
@@ -29,3 +29,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ message: e.message }, { status: 401 });
   }
 }
+

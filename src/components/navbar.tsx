@@ -76,7 +76,6 @@ export function Navbar() {
     { name: "Home", path: "/home", icon: <HomeIcon /> },
     { name: "Leaderboard", path: "/leaderboard", icon: <TrophyIcon /> },
     { name: "Profile", path: "/profile", icon: <UserIcon /> },
-    { name: "Buy TCredit", path: "/buy-credit", icon: <CreditCardIcon /> },
   ];
 
   const handleNavigate = (path: string) => {
